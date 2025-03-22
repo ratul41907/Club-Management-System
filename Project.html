@@ -1,15 +1,17 @@
-<!DOCTYPE>
-<html lang='en'>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <title> Loader example </title>
+    <title>Club Management Loader</title>
     <style>
-        .loading-gif {
-            max-width: 500px;
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            text-align: center;
         }
 
         .pre-loader {
             position: fixed;
-            z-index: 100; /** make sure this is the highest value compared to all other divs **/
+            z-index: 100;
             top: 0;
             left: 0;
             background: #191f26;
@@ -18,11 +20,22 @@
             align-items: center;
             height: 100%;
             width: 100%;
+            flex-direction: column;
+            color: white;
         }
 
         .pre-loader.hidden {
-            animation: fadeOut 2s; /** change to 1s */
-            animation-fill-mode: forwards;
+            animation: fadeOut 1s ease-out forwards, scaleDown 0.5s ease-out forwards;
+        }
+
+        .loader-icon {
+            font-size: 80px; /* Adjust size */
+            animation: rotate 1.5s linear infinite;
+        }
+
+        @keyframes rotate {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
 
         @keyframes fadeOut {
@@ -31,20 +44,34 @@
                 visibility: hidden;
             }
         }
+
+        @keyframes scaleDown {
+            100% {
+                transform: scale(0.8);
+            }
+        }
+
+        .loader-text {
+            margin-top: 15px;
+            font-size: 18px;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
-<!--- Your content goes here -->
-<p>Page content</p>
-<div class='pre-loader'>
-    <img class='loading-gif' alt='loading' src="https://media0.giphy.com/media/11FuEnXyGsXFba/source.gif"/>
-</div>
+    <div class="pre-loader">
+        <div class="loader-icon">🏆</div>
+        <div class="loader-text">Loading Club Management System...</div>
+    </div>
 
-<!-- js to hide preloader loading is done -->
-<script type='text/javascript'>
-    window.addEventListener('load', function () {
-        document.querySelector('.pre-loader').className += ' hidden';
-    });
-</script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            setTimeout(function () {
+                document.querySelector(".pre-loader").style.display = "none";
+                window.location.href = "dashboard.html"; // Change this to the desired page
+            }, 3000); // Adjust time in milliseconds (3000ms = 3 seconds)
+        });
+    </script>
 </body>
+
 </html>
