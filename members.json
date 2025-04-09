@@ -1,0 +1,42 @@
+[
+    {
+        "first_name": "Karim",
+        "middle_name": "Rahim",
+        "last_name": "Sami",
+        "dob": "1998-05-15",
+        "club_id": "1",
+        "mobile": "123-456-7890"
+    },
+    {
+        "first_name": "Siam",
+        "middle_name": "Ahmed",
+        "last_name": "Siam",
+        "dob": "2000-09-22",
+        "club_id": "2",
+        "mobile": "234-567-8901"
+    },
+    {
+        "first_name": "Sakib",
+        "middle_name": "al",
+        "last_name": "Hasan",
+        "dob": "1997-12-03",
+        "club_id": "3",
+        "mobile": "345-678-9012"
+    },
+    {
+        "first_name": "Md",
+        "middle_name": "SK",
+        "last_name": "Rasel",
+        "dob": "1999-03-10",
+        "club_id": "1",
+        "mobile": "456-789-0123"
+    },
+    {
+        "first_name": "Md",
+        "middle_name": "Abdur",
+        "last_name": "Rahim",
+        "dob": "2001-07-28",
+        "club_id": "2",
+        "mobile": "567-890-1234"
+    }
+]
