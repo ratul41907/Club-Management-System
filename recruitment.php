@@ -21,7 +21,7 @@ if (file_exists($membersFile)) {
             'last_name' => 'Sami',
             'dob' => '1998-05-15',
             'club_id' => '1',
-            'mobile' => ['+8801712345678', '+8801712345679'] // Multiple numbers
+            'mobile' => ['+8801712345678','+8801715938093']
         ],
         [
             'first_name' => 'Siam',
@@ -29,7 +29,7 @@ if (file_exists($membersFile)) {
             'last_name' => 'Siam',
             'dob' => '2000-09-22',
             'club_id' => '2',
-            'mobile' => ['+8801812345678']
+            'mobile' => '+8801812345678'
         ],
         [
             'first_name' => 'Sakib',
@@ -37,7 +37,7 @@ if (file_exists($membersFile)) {
             'last_name' => 'Hasan',
             'dob' => '1997-12-03',
             'club_id' => '3',
-            'mobile' => ['+8801912345678', '+8801912345679', '+8801912345680']
+            'mobile' => '+8801912345678'
         ],
         [
             'first_name' => 'Md',
@@ -45,7 +45,7 @@ if (file_exists($membersFile)) {
             'last_name' => 'Rasel',
             'dob' => '1999-03-10',
             'club_id' => '1',
-            'mobile' => ['+8801512345678']
+            'mobile' => '+8801512345678'
         ],
         [
             'first_name' => 'Md',
@@ -53,7 +53,7 @@ if (file_exists($membersFile)) {
             'last_name' => 'Rahim',
             'dob' => '2001-07-28',
             'club_id' => '2',
-            'mobile' => ['+8801612345678', '+8801612345679']
+            'mobile' => '+8801612345678'
         ]
     ];
     // Save initial data to file
@@ -75,26 +75,19 @@ function calculateAge($dob) {
 // Handle form submission for adding new member to temporary list
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['recruit'])) {
     $club_id = $_POST['club_id'];
-    $mobiles = array_filter(explode(',', $_POST['mobile'])); // Split by comma and remove empty entries
-    $valid_mobiles = [];
-    foreach ($mobiles as $mobile) {
-        $mobile = trim($mobile);
-        if (preg_match('/^\+880\d{10}$/', $mobile)) {
-            $valid_mobiles[] = $mobile;
-        }
-    }
-    if (in_array($club_id, ['1', '2', '3']) && !empty($valid_mobiles)) {
+    $mobile = $_POST['mobile'];
+    if (in_array($club_id, ['1', '2', '3']) && preg_match('/^\+880\d{10}$/', $mobile)) {
         $new_member = [
             'first_name' => $_POST['first_name'],
             'middle_name' => $_POST['middle_name'],
             'last_name' => $_POST['last_name'],
             'dob' => $_POST['dob'],
             'club_id' => $club_id,
-            'mobile' => $valid_mobiles // Array of valid mobile numbers
+            'mobile' => $mobile
         ];
         $_SESSION['temp_members'][] = $new_member; // Add to temporary session storage
     } else {
-        $error = "Club ID must be 1, 2, or 3, and mobile numbers must be in format +880 followed by 10 digits, separated by commas.";
+        $error = "Club ID must be 1, 2, or 3, and mobile must be in format +880 followed by 10 digits.";
     }
 }
 
@@ -244,7 +237,7 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
     <div class="menu-container">
         <h3>Recruitment</h3>
 
-        <!-- Members Table without Status -->
+        <!-- Members Table with SL and Mobile -->
         <div class="table-responsive">
             <table class="table table-striped">
                 <thead>
@@ -260,7 +253,7 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
                     </tr>
                 </thead>
                 <tbody>
-                    <?php $sl = 1; foreach ($display_members as $member): ?>
+                    <?php $sl = 1; foreach ($display_members as $index => $member): ?>
                         <tr>
                             <td><?php echo $sl++; ?></td>
                             <td><?php echo htmlspecialchars($member['first_name']); ?></td>
@@ -269,14 +262,14 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
                             <td><?php echo htmlspecialchars($member['dob']); ?></td>
                             <td><?php echo calculateAge($member['dob']); ?></td>
                             <td><?php echo htmlspecialchars($member['club_id']); ?></td>
-                            <td><?php echo htmlspecialchars(implode(', ', $member['mobile'])); ?></td>
+                            <td><?php echo htmlspecialchars($member['mobile']); ?></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
 
-        <!-- Recruitment Form with Multiple Mobile Numbers -->
+        <!-- Recruitment Form with Mobile -->
         <h4 class="mt-4">Add New Member</h4>
         <?php if (isset($error)): ?>
             <div class="alert alert-danger"><?php echo $error; ?></div>
@@ -298,8 +291,8 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
                 <input type="date" name="dob" class="form-control" required>
             </div>
             <div class="mb-3">
-                <input type="text" name="mobile" class="form-control" placeholder="Mobile (e.g., +8801234567890, +8801234567891)" required title="Enter mobile numbers in format: +880 followed by 10 digits, separated by commas">
-            </div>
+                <input type="text" name="mobile" class="form-control" placeholder="Mobile (e.g., +8801234567890)" required pattern="\+880\d{10}" title="Please enter mobile number in format: +880 followed by 10 digits (e.g., +8801234567890)">
+            </divstructors>
             <div class="mb-3">
                 <select name="club_id" class="form-control" required>
                     <option value="" disabled selected>Select Club ID</option>
