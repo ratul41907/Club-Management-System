@@ -24,7 +24,7 @@ if (!isset($_SESSION['members'])) {
             'last_name' => 'Sami',
             'dob' => '1998-05-15',
             'club_id' => '1',
-            'status' => 'Pending' // Adding status field
+            'status' => 'Pending'
         ],
         [
             'first_name' => 'Siam',
@@ -94,7 +94,7 @@ $members = $_SESSION['members'];
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
         .registration-container {
-            max-width: 900px; /* Increased width to accommodate more fields */
+            max-width: 900px;
             width: 100%;
             padding: 2rem;
             background: white;
@@ -172,6 +172,13 @@ $members = $_SESSION['members'];
             font-weight: 600;
             margin-top: 1.5rem;
         }
+        .btn-primary {
+            width: 100%;
+            padding: 0.75rem;
+            border-radius: 8px;
+            font-weight: 600;
+            margin-top: 0.5rem;
+        }
         #clock {
             text-align: center;
             margin-top: 1.5rem;
@@ -232,6 +239,7 @@ $members = $_SESSION['members'];
             </div>
         <?php endforeach; ?>
 
+        <a href="member_record.php" class="btn btn-primary">View Member Records</a>
         <a href="dashboard.php?logout=true" class="btn btn-danger">Logout</a>
         <div id="clock"></div>
     </div>
