@@ -1,0 +1,32 @@
+[
+    {
+        "position": "Chair",
+        "name": "Fahim",
+        "start_date": "2025-01-01",
+        "end_date": "2025-12-31"
+    },
+    {
+        "position": "Vice Chair",
+        "name": "Omar",
+        "start_date": "2025-01-01",
+        "end_date": "2025-12-31"
+    },
+    {
+        "position": "Secretary",
+        "name": "Sadman",
+        "start_date": "2025-01-01",
+        "end_date": "2025-12-31"
+    },
+    {
+        "position": "Treasurer",
+        "name": "Salim",
+        "start_date": "2025-01-01",
+        "end_date": "2025-12-31"
+    },
+    {
+        "position": "Webmaster",
+        "name": "Asif",
+        "start_date": "2025-01-01",
+        "end_date": "2025-12-31"
+    }
+]

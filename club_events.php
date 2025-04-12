@@ -1,14 +1,13 @@
 <?php
 session_start();
 
-// Check if user is logged in as a lead
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || 
     !isset($_SESSION['lead_logged_in']) || $_SESSION['lead_logged_in'] !== true) {
     header("Location: index.php");
     exit();
 }
 
-// Ensure events array exists in session
+
 if (!isset($_SESSION['events']) || !is_array($_SESSION['events'])) {
     $_SESSION['events'] = [
         [
@@ -39,7 +38,7 @@ if (!isset($_SESSION['events']) || !is_array($_SESSION['events'])) {
     ];
 }
 
-// Handle adding a new event
+
 if (isset($_POST['add_event'])) {
     $event_name = filter_input(INPUT_POST, 'event_name', FILTER_SANITIZE_STRING);
     $event_date = filter_input(INPUT_POST, 'event_date', FILTER_SANITIZE_STRING);
@@ -59,7 +58,7 @@ if (isset($_POST['add_event'])) {
     exit();
 }
 
-// Handle deleting an event
+
 if (isset($_POST['delete_event'])) {
     $index = filter_input(INPUT_POST, 'event_index', FILTER_VALIDATE_INT);
     
@@ -221,14 +220,14 @@ $events = $_SESSION['events'];
     <div class="events-container">
         <h3>Club Events</h3>
 
-        <!-- Add Event Form -->
+
         <form class="add-event-form" method="post" action="club_events.php">
             <input type="text" name="event_name" class="form-control" placeholder="Event Name" required>
             <input type="date" name="event_date" class="form-control" required>
             <button type="submit" name="add_event" class="btn-add">Add Event</button>
         </form>
 
-        <!-- Event List -->
+        
         <?php if (empty($events)): ?>
             <p class="text-center">No events found.</p>
         <?php else: ?>

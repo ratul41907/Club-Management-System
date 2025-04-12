@@ -19,7 +19,7 @@ if (isset($_POST['member_login'])) {
     if ($member_id === $valid_member_id && $password === $valid_password) {
         $_SESSION['member_logged_in'] = true;
         $_SESSION['member_id'] = $member_id;
-        header("Location: member_dashboard.php"); // Redirect to a member dashboard
+        header("Location: task_options.php"); // Redirect to task options page
         exit();
     } else {
         $login_error = "Invalid Member ID or Password!";

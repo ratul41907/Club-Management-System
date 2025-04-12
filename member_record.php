@@ -1,15 +1,15 @@
 <?php
 session_start();
 
-// Check if user is logged in as a lead
+// Check if user is logged in as a lead (match menu.php with 'lead_logged_in')
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || 
     !isset($_SESSION['lead_logged_in']) || $_SESSION['lead_logged_in'] !== true) {
-    header("Location: index.php");
+    header("Location: menu.php"); // Redirect to menu.php
     exit();
 }
 
 // Initialize member_records array if not already set
-if (!isset($_SESSION['member_records'])) {
+if (!isset($_SESSION['member_records']) || !is_array($_SESSION['member_records'])) {
     $_SESSION['member_records'] = [];
 }
 
@@ -18,42 +18,44 @@ function generateRecordId() {
     return 'REC' . str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
 }
 
-// Sync selected members from clubregistration.php to member_records.php
-if (isset($_SESSION['members'])) {
-    foreach ($_SESSION['members'] as $member) {
-        if ($member['status'] === 'Selected') {
-            $memberExists = false;
-            foreach ($_SESSION['member_records'] as $record) {
-                if ($record['first_name'] === $member['first_name'] &&
-                    $record['middle_name'] === $member['middle_name'] &&
-                    $record['last_name'] === $member['last_name'] &&
-                    $record['dob'] === $member['dob']) {
-                    $memberExists = true;
-                    break;
+// Sync selected members from $_SESSION['members'] (set in clubregistration.php)
+// Use a flag to trigger sync only when explicitly needed
+if (isset($_SESSION['sync_members']) && $_SESSION['sync_members'] === true) {
+    if (isset($_SESSION['members'])) {
+        foreach ($_SESSION['members'] as $member) {
+            if (isset($member['status']) && $member['status'] === 'Selected') {
+                $memberExists = false;
+                $record_id = isset($member['record_id']) ? $member['record_id'] : generateRecordId();
+                
+                // Check if this member already exists in member_records
+                foreach ($_SESSION['member_records'] as $record) {
+                    if ($record['record_id'] === $record_id) {
+                        $memberExists = true;
+                        break;
+                    }
                 }
-            }
-            if (!$memberExists) {
-                $_SESSION['member_records'][] = [
-                    'record_id' => generateRecordId(),
-                    'first_name' => $member['first_name'],
-                    'middle_name' => $member['middle_name'],
-                    'last_name' => $member['last_name'],
-                    'dob' => $member['dob'],
-                    'club_id' => $member['club_id'],
-                    'activity_status' => 'Active' // Default status for new members
-                ];
+                
+                // Add only if not already present
+                if (!$memberExists) {
+                    $_SESSION['member_records'][] = [
+                        'record_id' => $record_id,
+                        'activity_status' => 'Active' // Default status for new members
+                    ];
+                }
             }
         }
     }
+    // Reset the sync flag after processing
+    unset($_SESSION['sync_members']);
 }
 
 // Handle activity status update
 if (isset($_POST['update_activity'])) {
-    $index = $_POST['record_index'];
-    $new_activity_status = $_POST['activity_status'];
+    $index = filter_input(INPUT_POST, 'record_index', FILTER_VALIDATE_INT);
+    $new_activity_status = filter_input(INPUT_POST, 'activity_status', FILTER_SANITIZE_STRING);
     
-    if (isset($_SESSION['member_records'][$index]) && 
-        in_array($new_activity_status, ['Active', 'Moderate', 'Less Active'])) {
+    if ($index !== false && $index !== null && isset($_SESSION['member_records'][$index]) && 
+        in_array($new_activity_status, ['Active', 'Moderate', 'Inactive'])) {
         $_SESSION['member_records'][$index]['activity_status'] = $new_activity_status;
     }
     header("Location: member_record.php"); // Refresh page
@@ -71,127 +73,119 @@ $member_records = $_SESSION['member_records'];
     <title>Member Records - Student Club Management System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <style>
-        body {
-            background: #e6f0fa;
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin: 0;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        body { 
+            background: #e6f0fa; 
+            min-height: 100vh; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            margin: 0; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
         }
-        .records-container {
-            max-width: 900px;
-            width: 100%;
-            padding: 2rem;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
-            transition: transform 0.3s ease;
+        .records-container { 
+            max-width: 900px; 
+            width: 100%; 
+            padding: 2rem; 
+            background: white; 
+            border-radius: 15px; 
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2); 
+            transition: transform 0.3s ease; 
         }
-        .records-container:hover {
-            transform: translateY(-5px);
+        .records-container:hover { 
+            transform: translateY(-5px); 
         }
-        h3 {
-            font-weight: 700;
-            color: #333;
-            text-align: center;
-            margin-bottom: 2rem;
+        h3 { 
+            font-weight: 700; 
+            color: #333; 
+            text-align: center; 
+            margin-bottom: 2rem; 
         }
-        .record-box {
-            background: #f8f9fa;
-            border: 1px solid #6e8efb;
-            border-radius: 8px;
-            padding: 1rem;
-            margin-bottom: 1rem;
-            transition: all 0.3s ease;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+        .record-box { 
+            background: #f8f9fa; 
+            border: 1px solid #6e8efb; 
+            border-radius: 8px; 
+            padding: 1rem; 
+            margin-bottom: 1rem; 
+            transition: all 0.3s ease; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
         }
-        .record-box:hover {
-            transform: scale(1.02);
-            box-shadow: 0 4px 15px rgba(110, 142, 251, 0.2);
+        .record-box:hover { 
+            transform: scale(1.02); 
+            box-shadow: 0 4px 15px rgba(110, 142, 251, 0.2); 
         }
-        .member-info {
-            flex-grow: 1;
+        .member-info { 
+            flex-grow: 1; 
         }
-        .info-text {
-            margin: 0.25rem 0;
-            color: #333;
+        .info-text { 
+            margin: 0.25rem 0; 
+            color: #333; 
         }
-        .status-form {
-            display: flex;
-            align-items: center;
+        .status-form { 
+            display: flex; 
+            align-items: center; 
         }
-        .activity-select {
-            width: 120px;
-            padding: 0.25rem;
-            border-radius: 4px;
-            border: none;
-            color: white;
-            font-weight: 600;
-            margin-right: 0.5rem;
+        .activity-select { 
+            width: 120px; 
+            padding: 0.25rem; 
+            border-radius: 4px; 
+            border: none; 
+            color: white; 
+            font-weight: 600; 
+            margin-right: 0.5rem; 
         }
-        .status-active {
-            background: #28a745;
+        .status-active { 
+            background: #28a745; 
         }
-        .status-moderate {
-            background: #ffc107;
+        .status-moderate { 
+            background: #ffc107; 
         }
-        .status-less-active {
-            background: #dc3545;
+        .status-inactive { 
+            background: #dc3545; 
         }
-        .btn-update {
-            padding: 0.25rem 0.75rem;
-            background: #6e8efb;
-            border: none;
-            border-radius: 4px;
-            color: white;
-            font-weight: 600;
-            transition: all 0.3s ease;
+        .btn-update { 
+            padding: 0.25rem 0.75rem; 
+            background: #6e8efb; 
+            border: none; 
+            border-radius: 4px; 
+            color: white; 
+            font-weight: 600; 
+            transition: all 0.3s ease; 
         }
-        .btn-update:hover {
-            background: #5a75d9;
-            transform: scale(1.05);
+        .btn-update:hover { 
+            background: #5a75d9; 
+            transform: scale(1.05); 
         }
-        .btn-danger {
-            width: 100%;
-            padding: 0.75rem;
-            border-radius: 8px;
-            font-weight: 600;
-            margin-top: 1.5rem;
+        .btn-danger, .btn-primary { 
+            width: 100%; 
+            padding: 0.75rem; 
+            border-radius: 8px; 
+            font-weight: 600; 
+            margin-top: 0.5rem; 
         }
-        #clock {
-            text-align: center;
-            margin-top: 1.5rem;
-            font-size: 1rem;
-            transition: color 1s ease;
+        .btn-danger { 
+            margin-top: 1.5rem; 
+        }
+        #clock { 
+            text-align: center; 
+            margin-top: 1.5rem; 
+            font-size: 1rem; 
+            transition: color 1s ease; 
         }
     </style>
     <script>
         document.addEventListener("DOMContentLoaded", function () {
             function updateClock() {
                 const now = new Date();
-                const options = { 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric', 
-                    hour: '2-digit', 
-                    minute: '2-digit', 
-                    second: '2-digit' 
-                };
+                const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' };
                 const clock = document.getElementById('clock');
                 if (clock) {
                     clock.textContent = now.toLocaleString('en-US', options);
                     const hour = now.getHours();
-                    if (hour >= 6 && hour < 12) {
-                        clock.style.color = "#6e8efb";
-                    } else if (hour >= 12 && hour < 18) {
-                        clock.style.color = "#ff6f61";
-                    } else {
-                        clock.style.color = "#a777e3";
-                    }
+                    if (hour >= 6 && hour < 12) clock.style.color = "#6e8efb";
+                    else if (hour >= 12 && hour < 18) clock.style.color = "#ff6f61";
+                    else clock.style.color = "#a777e3";
                 }
             }
             setInterval(updateClock, 1000);
@@ -210,19 +204,14 @@ $member_records = $_SESSION['member_records'];
                 <div class="record-box">
                     <div class="member-info">
                         <p class="info-text">Record ID: <?php echo htmlspecialchars($record['record_id']); ?></p>
-                        <p class="info-text">Name: <?php echo htmlspecialchars($record['first_name'] . ' ' . $record['middle_name'] . ' ' . $record['last_name']); ?></p>
-                        <p class="info-text">Date of Birth: <?php echo htmlspecialchars($record['dob']); ?></p>
-                        <p class="info-text">Club ID: <?php echo htmlspecialchars($record['club_id']); ?></p>
                     </div>
                     <form class="status-form" method="post" action="member_record.php">
                         <select name="activity_status" class="activity-select 
-                            <?php 
-                            echo $record['activity_status'] === 'Active' ? 'status-active' : 
-                                ($record['activity_status'] === 'Moderate' ? 'status-moderate' : 'status-less-active'); 
-                            ?>">
+                            <?php echo $record['activity_status'] === 'Active' ? 'status-active' : 
+                                ($record['activity_status'] === 'Moderate' ? 'status-moderate' : 'status-inactive'); ?>">
                             <option value="Active" <?php echo $record['activity_status'] === 'Active' ? 'selected' : ''; ?>>Active</option>
                             <option value="Moderate" <?php echo $record['activity_status'] === 'Moderate' ? 'selected' : ''; ?>>Moderate</option>
-                            <option value="Less Active" <?php echo $record['activity_status'] === 'Less Active' ? 'selected' : ''; ?>>Less Active</option>
+                            <option value="Inactive" <?php echo $record['activity_status'] === 'Inactive' ? 'selected' : ''; ?>>Inactive</option>
                         </select>
                         <input type="hidden" name="record_index" value="<?php echo $index; ?>">
                         <button type="submit" name="update_activity" class="btn-update">Update</button>
@@ -231,6 +220,7 @@ $member_records = $_SESSION['member_records'];
             <?php endforeach; ?>
         <?php endif; ?>
 
+        <a href="menu.php" class="btn btn-primary">Back to Club Lead Menu</a>
         <a href="dashboard.php?logout=true" class="btn btn-danger">Logout</a>
         <div id="clock"></div>
     </div>

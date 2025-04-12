@@ -24,10 +24,9 @@ $all_clubs = array_merge(CLUBS, $_SESSION['additional_clubs']);
 
 // Handle adding a new club
 if (isset($_POST['add-club'])) {
-    $new_club_name = trim($_POST['new_club_name']);
+    $new_club_name = filter_var(trim($_POST['new_club_name']), FILTER_SANITIZE_STRING);
     
     if (!empty($new_club_name)) {
-        // Check if club name already exists
         $existing_names = array_column($all_clubs, 'club_name');
         if (in_array($new_club_name, $existing_names)) {
             $_SESSION['add_club_error'] = "Club name already exists!";
@@ -39,6 +38,7 @@ if (isset($_POST['add-club'])) {
                 "club_id" => $new_club_id,
                 "club_name" => $new_club_name
             ];
+            $_SESSION['add_club_success'] = "Club '$new_club_name' added successfully!";
             header("Location: dashboard.php");
             exit();
         }
@@ -49,13 +49,18 @@ if (isset($_POST['add-club'])) {
 
 // Handle role selection form submission
 if (isset($_POST['select-role'])) {
-    $selected_club_id = $_POST['club_id'];
-    $is_executive = isset($_POST['role']) && $_POST['role'] === 'executive';
+    $selected_club_id = $_POST['club_id'] ?? '';
+    $is_executive = isset($_POST['role']) && $_POST['role'] === 'executive'; // True if checked, false if unchecked
 
     $club_ids = array_column($all_clubs, 'club_id');
     if (in_array($selected_club_id, $club_ids)) {
         $_SESSION['selected_club_id'] = $selected_club_id;
-        header("Location: " . ($is_executive ? "clubleads.php" : "general.php"));
+        // Redirect based on checkbox state
+        if ($is_executive) {
+            header("Location: clubleads.php");
+        } else {
+            header("Location: general.php");
+        }
         exit();
     } else {
         $_SESSION['role_error'] = "Please select a valid club!";
@@ -82,7 +87,6 @@ $student_id = isset($_SESSION['student_id']) ? $_SESSION['student_id'] : "Unknow
     <title>Dashboard - Student Club Management System</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <style>
-        /* [Your existing CSS remains unchanged] */
         body {
             background: #e6f0fa;
             min-height: 100vh;
@@ -174,7 +178,6 @@ $student_id = isset($_SESSION['student_id']) ? $_SESSION['student_id'] : "Unknow
         }
     </style>
     <script>
-        /* [Your existing JavaScript remains unchanged] */
         document.addEventListener("DOMContentLoaded", function () {
             function updateClock() {
                 const now = new Date();
@@ -241,6 +244,12 @@ $student_id = isset($_SESSION['student_id']) ? $_SESSION['student_id'] : "Unknow
             </div>
             <button type="submit" class="btn btn-primary w-100" name="add-club">Add Club</button>
         </form>
+
+        <?php if (isset($_SESSION['add_club_success'])): ?>
+            <div class="alert alert-success" role="alert">
+                <?php echo htmlspecialchars($_SESSION['add_club_success']); unset($_SESSION['add_club_success']); ?>
+            </div>
+        <?php endif; ?>
 
         <?php if (isset($_SESSION['add_club_error'])): ?>
             <div class="alert alert-danger" role="alert">

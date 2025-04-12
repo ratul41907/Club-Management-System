@@ -1,19 +1,19 @@
 <?php
 session_start();
 
-// Check if user is logged in as a lead
+
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || 
     !isset($_SESSION['lead_logged_in']) || $_SESSION['lead_logged_in'] !== true) {
-    header("Location: index.php");
+    header("Location: menu.php"); // Redirect back to menu.php if not a lead
     exit();
 }
 
-// Ensure member_records exists in session
+
 if (!isset($_SESSION['member_records']) || !is_array($_SESSION['member_records'])) {
     $_SESSION['member_records'] = [];
 }
 
-// Handle membership type update
+
 if (isset($_POST['update_membership'])) {
     $index = filter_input(INPUT_POST, 'record_index', FILTER_VALIDATE_INT);
     $new_membership_type = filter_input(INPUT_POST, 'membership_type', FILTER_SANITIZE_STRING);
@@ -21,22 +21,45 @@ if (isset($_POST['update_membership'])) {
     if ($index !== false && $index !== null && isset($_SESSION['member_records'][$index]) && 
         in_array($new_membership_type, ['Yearly', 'Half Yearly'])) {
         $_SESSION['member_records'][$index]['membership_type'] = $new_membership_type;
-        $_SESSION['member_records'][$index]['membership_amount'] = ($new_membership_type === 'Yearly') ? 1000 : 700;
+        $_SESSION['member_records'][$index]['membership_amount'] = ($new_membership_type === 'Yearly') ? 1000 : 500;
     }
     header("Location: club_membership.php"); // Refresh page
     exit();
 }
 
-// Assign default membership type and amount if not set
+
+if (isset($_POST['add_member'])) {
+    $sl = filter_input(INPUT_POST, 'sl', FILTER_SANITIZE_STRING);
+    $membership_type = filter_input(INPUT_POST, 'new_membership_type', FILTER_SANITIZE_STRING);
+    $membership_amount = filter_input(INPUT_POST, 'membership_amount', FILTER_VALIDATE_INT);
+
+    if (!empty($sl) && in_array($membership_type, ['Yearly', 'Half Yearly']) && 
+        in_array($membership_amount, [500, 1000])) {
+        $_SESSION['member_records'][] = [
+            'record_id' => $sl, // Using SL as record_id
+            'club_id' => $_SESSION['selected_club_id'] ?? 'N/A', // From dashboard.php
+            'membership_type' => $membership_type,
+            'membership_amount' => $membership_amount
+        ];
+    }
+    header("Location: club_membership.php"); // Refresh page
+    exit();
+}
+
+
 foreach ($_SESSION['member_records'] as &$record) {
     if (!isset($record['membership_type']) || !isset($record['membership_amount'])) {
-        $record['membership_type'] = 'Yearly'; // Default membership type
-        $record['membership_amount'] = 1000; // Default amount for Yearly
+        $record['membership_type'] = 'Yearly';
+        $record['membership_amount'] = 1000;
     }
 }
-unset($record); // Unset reference to avoid issues
+unset($record);
 
 $member_records = $_SESSION['member_records'];
+
+
+$total_members = count($member_records);
+$total_money = array_sum(array_column($member_records, 'membership_amount'));
 ?>
 
 <!DOCTYPE html>
@@ -148,6 +171,51 @@ $member_records = $_SESSION['member_records'];
             font-size: 1rem;
             transition: color 1s ease;
         }
+        .totals-box {
+            background: #f8f9fa;
+            border: 1px solid #6e8efb;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1.5rem;
+            text-align: center;
+        }
+        .totals-box p {
+            margin: 0.5rem 0;
+            font-weight: 600;
+            color: #333;
+        }
+        .add-member-box {
+            background: #f8f9fa;
+            border: 1px solid #6e8efb;
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .add-member-box input, .add-member-box select {
+            padding: 0.5rem;
+            border-radius: 4px;
+            border: 1px solid #ced4da;
+            margin-right: 0.5rem;
+        }
+        .add-member-box select {
+            color: white;
+        }
+        .btn-add {
+            padding: 0.5rem 1rem;
+            background: #28a745;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .btn-add:hover {
+            background: #218838;
+            transform: scale(1.05);
+        }
     </style>
     <script>
         document.addEventListener("DOMContentLoaded", function () {
@@ -188,13 +256,7 @@ $member_records = $_SESSION['member_records'];
         <?php else: ?>
             <?php foreach ($member_records as $index => $record): ?>
                 <?php 
-                // Ensure required fields exist to avoid undefined index errors
                 $record_id = isset($record['record_id']) ? htmlspecialchars($record['record_id']) : 'N/A';
-                $full_name = htmlspecialchars(trim(
-                    (isset($record['first_name']) ? $record['first_name'] : '') . ' ' .
-                    (isset($record['middle_name']) ? $record['middle_name'] : '') . ' ' .
-                    (isset($record['last_name']) ? $record['last_name'] : '')
-                ));
                 $club_id = isset($record['club_id']) ? htmlspecialchars($record['club_id']) : 'N/A';
                 $membership_amount = isset($record['membership_amount']) ? htmlspecialchars($record['membership_amount']) : 'N/A';
                 $membership_type = isset($record['membership_type']) ? $record['membership_type'] : 'Yearly';
@@ -202,7 +264,6 @@ $member_records = $_SESSION['member_records'];
                 <div class="membership-box">
                     <div class="member-info">
                         <p class="info-text">Record ID: <?php echo $record_id; ?></p>
-                        <p class="info-text">Name: <?php echo $full_name; ?></p>
                         <p class="info-text">Club ID: <?php echo $club_id; ?></p>
                         <p class="info-text">Membership Amount: <?php echo $membership_amount; ?></p>
                     </div>
@@ -219,8 +280,28 @@ $member_records = $_SESSION['member_records'];
             <?php endforeach; ?>
         <?php endif; ?>
 
+        <div class="add-member-box">
+            <form method="post" action="club_membership.php" class="d-flex align-items-center">
+                <input type="text" name="sl" placeholder="Enter SL" required>
+                <select name="new_membership_type" class="membership-select membership-yearly">
+                    <option value="Yearly">Yearly</option>
+                    <option value="Half Yearly">Half Yearly</option>
+                </select>
+                <select name="membership_amount" class="membership-select membership-yearly">
+                    <option value="500">500</option>
+                    <option value="1000">1000</option>
+                </select>
+                <button type="submit" name="add_member" class="btn-add">Add Member</button>
+            </form>
+        </div>
+
+        <div class="totals-box">
+            <p>Total Members: <?php echo $total_members; ?></p>
+            <p>Total Money: <?php echo $total_money; ?></p>
+        </div>
+
         <a href="member_record.php" class="btn btn-primary">View Member Records</a>
-        <a href="clubregistration.php" class="btn btn-primary">Back to Club Registration</a>
+        <a href="menu.php" class="btn btn-primary">Back to Club Lead Menu</a>
         <a href="dashboard.php?logout=true" class="btn btn-danger">Logout</a>
         <div id="clock"></div>
     </div>

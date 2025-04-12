@@ -1,18 +1,25 @@
 <?php
 session_start();
 
-// Check if user is logged in as a lead
+
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || !isset($_SESSION['lead_logged_in']) || $_SESSION['lead_logged_in'] !== true) {
     header("Location: index.php");
     exit();
 }
 
-// File to store members data
+
 $membersFile = 'members.json';
 
-// Load members from file if it exists, otherwise initialize with default data
+
 if (file_exists($membersFile)) {
     $members = json_decode(file_get_contents($membersFile), true);
+    // Normalize mobile numbers to arrays
+    foreach ($members as &$member) {
+        if (!is_array($member['mobile'])) {
+            $member['mobile'] = [$member['mobile']];
+        }
+    }
+    unset($member); 
 } else {
     $members = [
         [
@@ -21,7 +28,7 @@ if (file_exists($membersFile)) {
             'last_name' => 'Sami',
             'dob' => '1998-05-15',
             'club_id' => '1',
-            'mobile' => ['+8801712345678','+8801715938093']
+            'mobile' => ['+8801712345678', '+8801715938093']
         ],
         [
             'first_name' => 'Siam',
@@ -29,34 +36,10 @@ if (file_exists($membersFile)) {
             'last_name' => 'Siam',
             'dob' => '2000-09-22',
             'club_id' => '2',
-            'mobile' => '+8801812345678'
-        ],
-        [
-            'first_name' => 'Sakib',
-            'middle_name' => 'al',
-            'last_name' => 'Hasan',
-            'dob' => '1997-12-03',
-            'club_id' => '3',
-            'mobile' => '+8801912345678'
-        ],
-        [
-            'first_name' => 'Md',
-            'middle_name' => 'SK',
-            'last_name' => 'Rasel',
-            'dob' => '1999-03-10',
-            'club_id' => '1',
-            'mobile' => '+8801512345678'
-        ],
-        [
-            'first_name' => 'Md',
-            'middle_name' => 'Abdur',
-            'last_name' => 'Rahim',
-            'dob' => '2001-07-28',
-            'club_id' => '2',
-            'mobile' => '+8801612345678'
+            'mobile' => ['+8801812345678']
         ]
     ];
-    // Save initial data to file
+    
     file_put_contents($membersFile, json_encode($members, JSON_PRETTY_PRINT));
 }
 
@@ -72,26 +55,52 @@ function calculateAge($dob) {
     return $birthDate->diff($today)->y;
 }
 
-// Handle form submission for adding new member to temporary list
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['recruit'])) {
-    $club_id = $_POST['club_id'];
-    $mobile = $_POST['mobile'];
-    if (in_array($club_id, ['1', '2', '3']) && preg_match('/^\+880\d{10}$/', $mobile)) {
+// Handle form submission for adding new member
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['recruit']) || isset($_POST['save_direct']))) {
+    $club_id = trim($_POST['club_id'] ?? '');
+    $mobile_numbers = array_filter($_POST['mobile'] ?? [], function($mobile) {
+        return !empty($mobile) && preg_match('/^\+880[0-9]{10}$/', trim($mobile));
+    });
+
+    $errors = [];
+    if (!in_array($club_id, ['1', '2', '3'])) {
+        $errors[] = "Club ID must be 1, 2, or 3.";
+    }
+    if (empty($mobile_numbers)) {
+        $errors[] = "At least one valid mobile number is required in format +880 followed by 10 digits (e.g., +8801234567890).";
+    }
+    // Validate DOB format (YYYY-MM-DD)
+    $dob = trim($_POST['dob'] ?? '');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dob) || !DateTime::createFromFormat('Y-m-d', $dob)) {
+        $errors[] = "Invalid date of birth format. Use YYYY-MM-DD.";
+    }
+
+    if (empty($errors)) {
         $new_member = [
-            'first_name' => $_POST['first_name'],
-            'middle_name' => $_POST['middle_name'],
-            'last_name' => $_POST['last_name'],
-            'dob' => $_POST['dob'],
+            'first_name' => trim($_POST['first_name']),
+            'middle_name' => trim($_POST['middle_name']),
+            'last_name' => trim($_POST['last_name']),
+            'dob' => $dob,
             'club_id' => $club_id,
-            'mobile' => $mobile
+            'mobile' => array_values($mobile_numbers) // Store as array
         ];
-        $_SESSION['temp_members'][] = $new_member; // Add to temporary session storage
+
+        if (isset($_POST['save_direct'])) {
+            // Save directly to members.json
+            $members[] = $new_member;
+            file_put_contents($membersFile, json_encode($members, JSON_PRETTY_PRINT));
+            $success = "Member saved successfully!";
+        } else {
+            // Add to temporary session storage
+            $_SESSION['temp_members'][] = $new_member;
+            $success = "Member added to temporary list!";
+        }
     } else {
-        $error = "Club ID must be 1, 2, or 3, and mobile must be in format +880 followed by 10 digits.";
+        $error = implode(' ', $errors);
     }
 }
 
-// Handle save action
+// Handle bulk save action
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
     if (!empty($_SESSION['temp_members'])) {
         $members = array_merge($members, $_SESSION['temp_members']); // Merge temp members with permanent list
@@ -154,7 +163,7 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
             border-radius: 8px;
             font-weight: 600;
             transition: all 0.3s ease;
-            margin: 0.5rem 0;
+            margin: 0.5rem;
         }
         .btn-primary:hover {
             background: #5a75d9;
@@ -167,7 +176,7 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
             border-radius: 8px;
             font-weight: 600;
             transition: all 0.3s ease;
-            margin: 0.5rem 0;
+            margin: 0.5rem;
         }
         .btn-success:hover {
             background: #218838;
@@ -194,6 +203,14 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
             padding: 0.75rem;
             text-align: left;
         }
+        .invalid-feedback {
+            display: none;
+            color: #dc3545;
+            font-size: 0.875rem;
+        }
+        .is-invalid ~ .invalid-feedback {
+            display: block;
+        }
         @media (max-width: 768px) {
             .table {
                 font-size: 0.9rem;
@@ -205,6 +222,7 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
     </style>
     <script>
         document.addEventListener("DOMContentLoaded", function () {
+            // Clock update
             function updateClock() {
                 const now = new Date();
                 const options = { 
@@ -230,6 +248,36 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
             }
             setInterval(updateClock, 1000);
             updateClock();
+
+            // Mobile number validation
+            const mobileInputs = document.querySelectorAll('input[name="mobile[]"]');
+            mobileInputs.forEach(input => {
+                input.addEventListener('input', function () {
+                    const value = this.value.trim();
+                    const regex = /^\+880[0-9]{10}$/;
+                    if (value === '' || regex.test(value)) {
+                        this.classList.remove('is-invalid');
+                        this.classList.add('is-valid');
+                    } else {
+                        this.classList.remove('is-valid');
+                        this.classList.add('is-invalid');
+                    }
+                });
+            });
+
+            // DOB validation
+            const dobInput = document.getElementById('dob');
+            dobInput.addEventListener('input', function () {
+                const value = this.value;
+                const regex = /^\d{4}-\d{2}-\d{2}$/;
+                if (regex.test(value) && Date.parse(value)) {
+                    this.classList.remove('is-invalid');
+                    this.classList.add('is-valid');
+                } else {
+                    this.classList.remove('is-valid');
+                    this.classList.add('is-invalid');
+                }
+            });
         });
     </script>
 </head>
@@ -262,49 +310,80 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
                             <td><?php echo htmlspecialchars($member['dob']); ?></td>
                             <td><?php echo calculateAge($member['dob']); ?></td>
                             <td><?php echo htmlspecialchars($member['club_id']); ?></td>
-                            <td><?php echo htmlspecialchars($member['mobile']); ?></td>
+                            <td>
+                                <?php
+                                if (is_array($member['mobile'])) {
+                                    echo htmlspecialchars(implode(', ', $member['mobile']));
+                                } else {
+                                    echo htmlspecialchars($member['mobile']);
+                                }
+                                ?>
+                            </td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
 
-        <!-- Recruitment Form with Mobile -->
+        <!-- Recruitment Form with Multiple Mobile Numbers -->
         <h4 class="mt-4">Add New Member</h4>
         <?php if (isset($error)): ?>
-            <div class="alert alert-danger"><?php echo $error; ?></div>
+            <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
         <?php endif; ?>
         <?php if (isset($success)): ?>
-            <div class="alert alert-success"><?php echo $success; ?></div>
+            <div class="alert alert-success"><?php echo htmlspecialchars($success); ?></div>
         <?php endif; ?>
-        <form method="POST" class="mt-3">
+        <form method="POST" class="mt-3" novalidate>
             <div class="mb-3">
-                <input type="text" name="first_name" class="form-control" placeholder="First Name" required>
+                <label for="first_name" class="form-label">First Name</label>
+                <input type="text" name="first_name" id="first_name" class="form-control" placeholder="First Name" required>
+                <div class="invalid-feedback">Please enter a first name.</div>
             </div>
             <div class="mb-3">
-                <input type="text" name="middle_name" class="form-control" placeholder="Middle Name" required>
+                <label for="middle_name" class="form-label">Middle Name</label>
+                <input type="text" name="middle_name" id="middle_name" class="form-control" placeholder="Middle Name" required>
+                <div class="invalid-feedback">Please enter a middle name.</div>
             </div>
             <div class="mb-3">
-                <input type="text" name="last_name" class="form-control" placeholder="Last Name" required>
+                <label for="last_name" class="form-label">Last Name</label>
+                <input type="text" name="last_name" id="last_name" class="form-control" placeholder="Last Name" required>
+                <div class="invalid-feedback">Please enter a last name.</div>
             </div>
             <div class="mb-3">
-                <input type="date" name="dob" class="form-control" required>
+                <label for=" Ascendantly for DOB
+                <input type="date" name="dob" id="dob" class="form-control" placeholder="Select Date of Birth" required>
+                <div class="invalid-feedback">Please enter a valid date (YYYY-MM-DD).</div>
             </div>
             <div class="mb-3">
-                <input type="text" name="mobile" class="form-control" placeholder="Mobile (e.g., +8801234567890)" required pattern="\+880\d{10}" title="Please enter mobile number in format: +880 followed by 10 digits (e.g., +8801234567890)">
-            </divstructors>
+                <label for="mobile1" class="form-label">Mobile Number 1 (Required)</label>
+                <input type="text" name="mobile[]" id="mobile1" class="form-control" placeholder="e.g., +8801234567890" required>
+                <div class="invalid-feedback">Please enter a valid mobile number (e.g., +8801234567890).</div>
+            </div>
             <div class="mb-3">
-                <select name="club_id" class="form-control" required>
+                <label for="mobile2" class="form-label">Mobile Number 2 (Optional)</label>
+                <input type="text" name="mobile[]" id="mobile2" class="form-control" placeholder="e.g., +8801234567890">
+                <div class="invalid-feedback">Please enter a valid mobile number (e.g., +8801234567890).</div>
+            </div>
+            <div class="mb-3">
+                <label for="mobile3" class="form-label">Mobile Number 3 (Optional)</label>
+                <input type="text" name="mobile[]" id="mobile3" class="form-control" placeholder="e.g., +8801234567890">
+                <div class="invalid-feedback">Please enter a valid mobile number (e.g., +8801234567890).</div>
+            </div>
+            <div class="mb-3">
+                <label for="club_id" class="form-label">Club ID</label>
+                <select name="club_id" id="club_id" class="form-control" required>
                     <option value="" disabled selected>Select Club ID</option>
                     <option value="1">1</option>
                     <option value="2">2</option>
                     <option value="3">3</option>
                 </select>
+                <div class="invalid-feedback">Please select a club ID.</div>
             </div>
-            <button type="submit" name="recruit" class="btn btn-primary">Recruit Member</button>
+            <button type="submit" name="recruit" class="btn btn-primary" title="Add to temporary list for later saving">Recruit Member</button>
+            <button type="submit" name="save_direct" class="btn btn-success" title="Save directly to permanent storage">Save Member</button>
         </form>
 
-        <!-- Save Button Form -->
+        <!-- Bulk Save Button Form -->
         <form method="POST" class="mt-3">
             <button type="submit" name="save" class="btn btn-success">Save All New Members</button>
         </form>
