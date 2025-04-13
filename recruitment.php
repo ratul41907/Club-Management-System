@@ -2,65 +2,51 @@
 session_start();
 
 
-if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || !isset($_SESSION['lead_logged_in']) || $_SESSION['lead_logged_in'] !== true) {
+try {
+    require_once 'db_connect.php';
+} catch (Exception $e) {
+    die("Database connection failed: " . $e->getMessage());
+}
+
+
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+
+if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || 
+    !isset($_SESSION['lead_logged_in']) || $_SESSION['lead_logged_in'] !== true) {
     header("Location: index.php");
     exit();
 }
 
 
-$membersFile = 'members.json';
-
-
-if (file_exists($membersFile)) {
-    $members = json_decode(file_get_contents($membersFile), true);
-    // Normalize mobile numbers to arrays
-    foreach ($members as &$member) {
-        if (!is_array($member['mobile'])) {
-            $member['mobile'] = [$member['mobile']];
-        }
-    }
-    unset($member); 
-} else {
-    $members = [
-        [
-            'first_name' => 'Karim',
-            'middle_name' => 'Rahim',
-            'last_name' => 'Sami',
-            'dob' => '1998-05-15',
-            'club_id' => '1',
-            'mobile' => ['+8801712345678', '+8801715938093']
-        ],
-        [
-            'first_name' => 'Siam',
-            'middle_name' => 'Ahmed',
-            'last_name' => 'Siam',
-            'dob' => '2000-09-22',
-            'club_id' => '2',
-            'mobile' => ['+8801812345678']
-        ]
-    ];
-    
-    file_put_contents($membersFile, json_encode($members, JSON_PRETTY_PRINT));
-}
-
-// Use session to store temporary new members
 if (!isset($_SESSION['temp_members'])) {
     $_SESSION['temp_members'] = [];
 }
 
-// Function to calculate age from DOB
+
 function calculateAge($dob) {
-    $birthDate = new DateTime($dob);
-    $today = new DateTime('today');
-    return $birthDate->diff($today)->y;
+    try {
+        $birthDate = new DateTime($dob);
+        $today = new DateTime('today');
+        return $birthDate->diff($today)->y;
+    } catch (Exception $e) {
+        error_log("Age calculation failed for DOB $dob: " . $e->getMessage());
+        return 0;
+    }
 }
 
-// Handle form submission for adding new member
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['recruit']) || isset($_POST['save_direct']))) {
     $club_id = trim($_POST['club_id'] ?? '');
     $mobile_numbers = array_filter($_POST['mobile'] ?? [], function($mobile) {
         return !empty($mobile) && preg_match('/^\+880[0-9]{10}$/', trim($mobile));
     });
+    $dob = trim($_POST['dob'] ?? '');
+    $first_name = trim($_POST['first_name'] ?? '');
+    $middle_name = trim($_POST['middle_name'] ?? '');
+    $last_name = trim($_POST['last_name'] ?? '');
 
     $errors = [];
     if (!in_array($club_id, ['1', '2', '3'])) {
@@ -69,29 +55,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['recruit']) || isset(
     if (empty($mobile_numbers)) {
         $errors[] = "At least one valid mobile number is required in format +880 followed by 10 digits (e.g., +8801234567890).";
     }
-    // Validate DOB format (YYYY-MM-DD)
-    $dob = trim($_POST['dob'] ?? '');
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $dob) || !DateTime::createFromFormat('Y-m-d', $dob)) {
-        $errors[] = "Invalid date of birth format. Use YYYY-MM-DD.";
+        $errors[] = "Invalid date of birth format. Use YYYY-MM-DD (e.g., 1998-05-15).";
+    }
+    if (empty($first_name)) {
+        $errors[] = "First name is required.";
+    }
+    if (empty($middle_name)) {
+        $errors[] = "Middle name is required.";
+    }
+    if (empty($last_name)) {
+        $errors[] = "Last name is required.";
     }
 
     if (empty($errors)) {
+        $age = calculateAge($dob);
+        $full_name = trim("$first_name $middle_name $last_name");
         $new_member = [
-            'first_name' => trim($_POST['first_name']),
-            'middle_name' => trim($_POST['middle_name']),
-            'last_name' => trim($_POST['last_name']),
+            'first_name' => $first_name,
+            'middle_name' => $middle_name,
+            'last_name' => $last_name,
             'dob' => $dob,
+            'age' => $age,
             'club_id' => $club_id,
-            'mobile' => array_values($mobile_numbers) // Store as array
+            'mobile' => array_values($mobile_numbers)
         ];
 
         if (isset($_POST['save_direct'])) {
-            // Save directly to members.json
-            $members[] = $new_member;
-            file_put_contents($membersFile, json_encode($members, JSON_PRETTY_PRINT));
-            $success = "Member saved successfully!";
+            // Save directly to database
+            try {
+                $stmt = $conn->prepare("INSERT INTO recruitment (f_name, m_name, l_name, dob, age, club_id) VALUES (?, ?, ?, ?, ?, ?)");
+                if (!$stmt) {
+                    throw new Exception("Prepare failed: " . $conn->error);
+                }
+                $stmt->bind_param("sssisi", $first_name, $middle_name, $last_name, $dob, $age, $club_id);
+                if (!$stmt->execute()) {
+                    throw new Exception("Execute failed: " . $stmt->error);
+                }
+
+                // Insert mobile numbers
+                $stmt_mobile = $conn->prepare("INSERT INTO recruitment_mobile (full_name, mobile) VALUES (?, ?)");
+                if (!$stmt_mobile) {
+                    throw new Exception("Prepare mobile failed: " . $conn->error);
+                }
+                foreach ($mobile_numbers as $mobile) {
+                    $stmt_mobile->bind_param("ss", $full_name, $mobile);
+                    if (!$stmt_mobile->execute()) {
+                        throw new Exception("Execute mobile failed: " . $stmt_mobile->error);
+                    }
+                }
+                $stmt_mobile->close();
+                $stmt->close();
+                $success = "Member saved successfully!";
+            } catch (Exception $e) {
+                $error = "Failed to save member: " . $e->getMessage();
+                error_log($error);
+            }
         } else {
-            // Add to temporary session storage
+            // Add to temporary list
             $_SESSION['temp_members'][] = $new_member;
             $success = "Member added to temporary list!";
         }
@@ -100,13 +121,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['recruit']) || isset(
     }
 }
 
-// Handle bulk save action
+// Handle bulk save of temporary members
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
     if (!empty($_SESSION['temp_members'])) {
-        $members = array_merge($members, $_SESSION['temp_members']); // Merge temp members with permanent list
-        file_put_contents($membersFile, json_encode($members, JSON_PRETTY_PRINT)); // Save to file
-        $_SESSION['temp_members'] = []; // Clear temporary members
-        $success = "New members saved successfully!";
+        try {
+            $stmt = $conn->prepare("INSERT INTO recruitment (f_name, m_name, l_name, dob, age, club_id) VALUES (?, ?, ?, ?, ?, ?)");
+            if (!$stmt) {
+                throw new Exception("Prepare failed: " . $conn->error);
+            }
+            $stmt_mobile = $conn->prepare("INSERT INTO recruitment_mobile (full_name, mobile) VALUES (?, ?)");
+            if (!$stmt_mobile) {
+                throw new Exception("Prepare mobile failed: " . $conn->error);
+            }
+
+            foreach ($_SESSION['temp_members'] as $member) {
+                $full_name = trim("{$member['first_name']} {$member['middle_name']} {$member['last_name']}");
+                $stmt->bind_param("sssisi", 
+                    $member['first_name'], 
+                    $member['middle_name'], 
+                    $member['last_name'], 
+                    $member['dob'], 
+                    $member['age'], 
+                    $member['club_id']
+                );
+                if (!$stmt->execute()) {
+                    throw new Exception("Execute failed: " . $stmt->error);
+                }
+
+                foreach ($member['mobile'] as $mobile) {
+                    $stmt_mobile->bind_param("ss", $full_name, $mobile);
+                    if (!$stmt_mobile->execute()) {
+                        throw new Exception("Execute mobile failed: " . $stmt_mobile->error);
+                    }
+                }
+            }
+
+            $stmt->close();
+            $stmt_mobile->close();
+            $_SESSION['temp_members'] = [];
+            $success = "New members saved successfully!";
+        } catch (Exception $e) {
+            $error = "Failed to save members: " . $e->getMessage();
+            error_log($error);
+        }
     }
 }
 
@@ -117,8 +174,35 @@ if (isset($_GET['logout']) && $_GET['logout'] === 'true') {
     exit();
 }
 
-// Combine permanent and temporary members for display
-$display_members = array_merge($members, $_SESSION['temp_members']);
+// Fetch members from database for display
+$display_members = [];
+try {
+    $result = $conn->query("SELECT r.f_name, r.m_name, r.l_name, r.dob, r.age, r.club_id, GROUP_CONCAT(rm.mobile) as mobiles 
+                            FROM recruitment r 
+                            LEFT JOIN recruitment_mobile rm ON CONCAT(r.f_name, ' ', r.m_name, ' ', r.l_name) = rm.full_name 
+                            GROUP BY r.f_name, r.m_name, r.l_name");
+    if ($result === false) {
+        throw new Exception("Query failed: " . $conn->error);
+    }
+    while ($row = $result->fetch_assoc()) {
+        $member = [
+            'first_name' => $row['f_name'],
+            'middle_name' => $row['m_name'],
+            'last_name' => $row['l_name'],
+            'dob' => $row['dob'],
+            'age' => $row['age'],
+            'club_id' => $row['club_id'],
+            'mobile' => $row['mobiles'] ? explode(',', $row['mobiles']) : []
+        ];
+        $display_members[] = $member;
+    }
+} catch (Exception $e) {
+    $error = "Failed to fetch members: " . $e->getMessage();
+    error_log($error);
+}
+
+
+$display_members = array_merge($display_members, $_SESSION['temp_members']);
 ?>
 
 <!DOCTYPE html>
@@ -150,7 +234,7 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
         .menu-container:hover {
             transform: translateY(-5px);
         }
-        h3 {
+        h3, h4 {
             font-weight: 700;
             color: #333;
             text-align: center;
@@ -195,9 +279,11 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
             font-size: 1rem;
             transition: color 1s ease;
         }
+        .table-responsive {
+            margin-top: 1rem;
+        }
         table {
             width: 100%;
-            margin-top: 1rem;
         }
         th, td {
             padding: 0.75rem;
@@ -211,6 +297,10 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
         .is-invalid ~ .invalid-feedback {
             display: block;
         }
+        .form-text {
+            font-size: 0.875rem;
+            color: #6c757d;
+        }
         @media (max-width: 768px) {
             .table {
                 font-size: 0.9rem;
@@ -222,7 +312,6 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
     </style>
     <script>
         document.addEventListener("DOMContentLoaded", function () {
-            // Clock update
             function updateClock() {
                 const now = new Date();
                 const options = { 
@@ -238,45 +327,64 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
                     clock.textContent = now.toLocaleString('en-US', options);
                     const hour = now.getHours();
                     if (hour >= 6 && hour < 12) {
-                        clock.style.color = "#6e8efb"; // Morning
+                        clock.style.color = "#6e8efb";
                     } else if (hour >= 12 && hour < 18) {
-                        clock.style.color = "#ff6f61"; // Afternoon
+                        clock.style.color = "#ff6f61";
                     } else {
-                        clock.style.color = "#a777e3"; // Evening/Night
+                        clock.style.color = "#a777e3";
                     }
                 }
             }
             setInterval(updateClock, 1000);
             updateClock();
 
-            // Mobile number validation
-            const mobileInputs = document.querySelectorAll('input[name="mobile[]"]');
-            mobileInputs.forEach(input => {
+            const inputs = document.querySelectorAll('#recruitment-form input, #recruitment-form select');
+            inputs.forEach(input => {
                 input.addEventListener('input', function () {
-                    const value = this.value.trim();
-                    const regex = /^\+880[0-9]{10}$/;
-                    if (value === '' || regex.test(value)) {
-                        this.classList.remove('is-invalid');
-                        this.classList.add('is-valid');
-                    } else {
-                        this.classList.remove('is-valid');
-                        this.classList.add('is-invalid');
+                    if (input.type === 'text' && input.name !== 'mobile[]') {
+                        if (input.value.trim() === '') {
+                            input.classList.remove('is-valid');
+                            input.classList.add('is-invalid');
+                        } else {
+                            input.classList.remove('is-invalid');
+                            input.classList.add('is-valid');
+                        }
+                    } else if (input.name === 'mobile[]') {
+                        const value = input.value.trim();
+                        const regex = /^\+880[0-9]{10}$/;
+                        if (value === '' && input.id !== 'mobile1') {
+                            input.classList.remove('is-invalid');
+                            input.classList.remove('is-valid');
+                        } else if (value === '' && input.id === 'mobile1') {
+                            input.classList.remove('is-valid');
+                            input.classList.add('is-invalid');
+                        } else if (regex.test(value)) {
+                            input.classList.remove('is-invalid');
+                            input.classList.add('is-valid');
+                        } else {
+                            input.classList.remove('is-valid');
+                            input.classList.add('is-invalid');
+                        }
+                    } else if (input.type === 'date') {
+                        const value = input.value;
+                        const regex = /^\d{4}-\d{2}-\d{2}$/;
+                        if (regex.test(value) && Date.parse(value)) {
+                            input.classList.remove('is-invalid');
+                            input.classList.add('is-valid');
+                        } else {
+                            input.classList.remove('is-valid');
+                            input.classList.add('is-invalid');
+                        }
+                    } else if (input.tagName === 'SELECT') {
+                        if (input.value === '') {
+                            input.classList.remove('is-valid');
+                            input.classList.add('is-invalid');
+                        } else {
+                            input.classList.remove('is-invalid');
+                            input.classList.add('is-valid');
+                        }
                     }
                 });
-            });
-
-            // DOB validation
-            const dobInput = document.getElementById('dob');
-            dobInput.addEventListener('input', function () {
-                const value = this.value;
-                const regex = /^\d{4}-\d{2}-\d{2}$/;
-                if (regex.test(value) && Date.parse(value)) {
-                    this.classList.remove('is-invalid');
-                    this.classList.add('is-valid');
-                } else {
-                    this.classList.remove('is-valid');
-                    this.classList.add('is-invalid');
-                }
             });
         });
     </script>
@@ -285,7 +393,7 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
     <div class="menu-container">
         <h3>Recruitment</h3>
 
-        <!-- Members Table with SL and Mobile -->
+        
         <div class="table-responsive">
             <table class="table table-striped">
                 <thead>
@@ -294,7 +402,7 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
                         <th>First Name</th>
                         <th>Middle Name</th>
                         <th>Last Name</th>
-                        <th>Date of Birth</th>
+                        <th>Birthday (DOB)</th>
                         <th>Age</th>
                         <th>Club ID</th>
                         <th>Mobile</th>
@@ -308,14 +416,14 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
                             <td><?php echo htmlspecialchars($member['middle_name']); ?></td>
                             <td><?php echo htmlspecialchars($member['last_name']); ?></td>
                             <td><?php echo htmlspecialchars($member['dob']); ?></td>
-                            <td><?php echo calculateAge($member['dob']); ?></td>
+                            <td><?php echo htmlspecialchars($member['age']); ?></td>
                             <td><?php echo htmlspecialchars($member['club_id']); ?></td>
                             <td>
                                 <?php
                                 if (is_array($member['mobile'])) {
                                     echo htmlspecialchars(implode(', ', $member['mobile']));
                                 } else {
-                                    echo htmlspecialchars($member['mobile']);
+                                    echo htmlspecialchars($member['mobile'] ?? '');
                                 }
                                 ?>
                             </td>
@@ -325,7 +433,7 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
             </table>
         </div>
 
-        <!-- Recruitment Form with Multiple Mobile Numbers -->
+        <!-- Recruitment Form -->
         <h4 class="mt-4">Add New Member</h4>
         <?php if (isset($error)): ?>
             <div class="alert alert-danger"><?php echo htmlspecialchars($error); ?></div>
@@ -333,7 +441,7 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
         <?php if (isset($success)): ?>
             <div class="alert alert-success"><?php echo htmlspecialchars($success); ?></div>
         <?php endif; ?>
-        <form method="POST" class="mt-3" novalidate>
+        <form method="POST" class="mt-3" id="recruitment-form" novalidate>
             <div class="mb-3">
                 <label for="first_name" class="form-label">First Name</label>
                 <input type="text" name="first_name" id="first_name" class="form-control" placeholder="First Name" required>
@@ -350,8 +458,9 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
                 <div class="invalid-feedback">Please enter a last name.</div>
             </div>
             <div class="mb-3">
-                <label for=" Ascendantly for DOB
-                <input type="date" name="dob" id="dob" class="form-control" placeholder="Select Date of Birth" required>
+                <label for="dob" class="form-label">Birthday (Date of Birth)</label>
+                <input type="date" name="dob" id="dob" class="form-control" required>
+                <div class="form-text">Format: YYYY-MM-DD (e.g., 1998-05-15)</div>
                 <div class="invalid-feedback">Please enter a valid date (YYYY-MM-DD).</div>
             </div>
             <div class="mb-3">
@@ -383,7 +492,7 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
             <button type="submit" name="save_direct" class="btn btn-success" title="Save directly to permanent storage">Save Member</button>
         </form>
 
-        <!-- Bulk Save Button Form -->
+        
         <form method="POST" class="mt-3">
             <button type="submit" name="save" class="btn btn-success">Save All New Members</button>
         </form>
@@ -394,3 +503,6 @@ $display_members = array_merge($members, $_SESSION['temp_members']);
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 </body>
 </html>
+<?php
+$conn->close();
+?>

@@ -1,53 +1,81 @@
 <?php
 session_start();
 
-// Check if user is logged in
+
+require_once 'db_connect.php';
+
+
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true) {
     header("Location: index.php");
     exit();
 }
 
-// Define fixed clubs as a constant array
-const CLUBS = [
-    ["club_id" => "1", "club_name" => "Robotics Club"],
-    ["club_id" => "2", "club_name" => "Social Service Club"],
-    ["club_id" => "3", "club_name" => "Game Club"]
-];
-
-// Initialize additional clubs in session if not already set
-if (!isset($_SESSION['additional_clubs'])) {
-    $_SESSION['additional_clubs'] = [];
+// Fetch all clubs from the database
+function getAllClubs($conn) {
+    $sql = "SELECT club_id, club_name FROM club ORDER BY club_id";
+    $result = $conn->query($sql);
+    $clubs = [];
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $clubs[] = [
+                'club_id' => $row['club_id'], // No need to cast to string; it's an integer
+                'club_name' => $row['club_name']
+            ];
+        }
+        $result->free();
+    } else {
+        error_log("Error fetching clubs: " . $conn->error);
+    }
+    return $clubs;
 }
 
-// Combine all clubs for use throughout the script
-$all_clubs = array_merge(CLUBS, $_SESSION['additional_clubs']);
+$all_clubs = getAllClubs($conn);
 
-// Handle adding a new club
+
 if (isset($_POST['add-club'])) {
     $new_club_name = filter_var(trim($_POST['new_club_name']), FILTER_SANITIZE_STRING);
     
     if (!empty($new_club_name)) {
-        $existing_names = array_column($all_clubs, 'club_name');
-        if (in_array($new_club_name, $existing_names)) {
-            $_SESSION['add_club_error'] = "Club name already exists!";
-        } else {
-            $club_ids = array_column($all_clubs, 'club_id');
-            $new_club_id = (string)(max(array_map('intval', $club_ids)) + 1);
+        // Check if club name already exists
+        $sql_check = "SELECT club_id FROM club WHERE club_name = ?";
+        if ($stmt_check = $conn->prepare($sql_check)) {
+            $stmt_check->bind_param("s", $new_club_name);
+            $stmt_check->execute();
+            $result_check = $stmt_check->get_result();
             
-            $_SESSION['additional_clubs'][] = [
-                "club_id" => $new_club_id,
-                "club_name" => $new_club_name
-            ];
-            $_SESSION['add_club_success'] = "Club '$new_club_name' added successfully!";
-            header("Location: dashboard.php");
-            exit();
+            if ($result_check->num_rows > 0) {
+                $_SESSION['add_club_error'] = "Club name already exists!";
+            } else {
+                // Insert new club into database
+                $sql_insert = "INSERT INTO club (club_name) VALUES (?)";
+                if ($stmt_insert = $conn->prepare($sql_insert)) {
+                    $stmt_insert->bind_param("s", $new_club_name);
+                    
+                    if ($stmt_insert->execute()) {
+                        $_SESSION['add_club_success'] = "Club '$new_club_name' added successfully!";
+                        header("Location: dashboard.php");
+                        exit();
+                    } else {
+                        $_SESSION['add_club_error'] = "Error adding club: " . $conn->error;
+                        error_log("Error inserting club: " . $conn->error);
+                    }
+                    $stmt_insert->close();
+                } else {
+                    $_SESSION['add_club_error'] = "Error preparing insert statement.";
+                    error_log("Error preparing insert: " . $conn->error);
+                }
+            }
+            $stmt_check->close();
+        } else {
+            $_SESSION['add_club_error'] = "Error preparing check statement.";
+            error_log("Error preparing check: " . $conn->error);
         }
     } else {
         $_SESSION['add_club_error'] = "Please enter a valid club name!";
     }
 }
 
-// Handle role selection form submission
+
 if (isset($_POST['select-role'])) {
     $selected_club_id = $_POST['club_id'] ?? '';
     $is_executive = isset($_POST['role']) && $_POST['role'] === 'executive'; // True if checked, false if unchecked
@@ -55,7 +83,7 @@ if (isset($_POST['select-role'])) {
     $club_ids = array_column($all_clubs, 'club_id');
     if (in_array($selected_club_id, $club_ids)) {
         $_SESSION['selected_club_id'] = $selected_club_id;
-        // Redirect based on checkbox state
+        
         if ($is_executive) {
             header("Location: clubleads.php");
         } else {
@@ -67,7 +95,7 @@ if (isset($_POST['select-role'])) {
     }
 }
 
-// Logout logic
+
 if (isset($_GET['logout'])) {
     session_unset();
     session_destroy();
@@ -75,7 +103,7 @@ if (isset($_GET['logout'])) {
     exit();
 }
 
-// Get student ID from session
+
 $student_id = isset($_SESSION['student_id']) ? $_SESSION['student_id'] : "Unknown";
 ?>
 
@@ -196,7 +224,7 @@ $student_id = isset($_SESSION['student_id']) ? $_SESSION['student_id'] : "Unknow
                     if (hour >= 6 && hour < 12) {
                         clock.style.color = "#6e8efb";
                     } else if (hour >= 12 && hour < 18) {
-                        clock.style.color = "#ff6f61";
+                        club.style.color = "#ff6f61";
                     } else {
                         clock.style.color = "#a777e3";
                     }
@@ -281,3 +309,7 @@ $student_id = isset($_SESSION['student_id']) ? $_SESSION['student_id'] : "Unknow
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 </body>
 </html>
+<?php
+
+$conn->close();
+?>

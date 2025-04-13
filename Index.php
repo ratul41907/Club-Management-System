@@ -1,6 +1,7 @@
 <?php
 session_start();
 
+require_once 'db_connect.php';
 // Handle login form submission
 if (isset($_POST['login'])) {
     $student_id = trim($_POST['student_id'] ?? '');

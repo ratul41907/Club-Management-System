@@ -8,54 +8,31 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true ||
     exit();
 }
 
-// File to store executives data
-$executivesFile = 'executives.json';
+// Include database connection
+require_once 'db_connect.php';
 
-// Load executives from file if it exists, otherwise initialize with default data
-if (file_exists($executivesFile)) {
-    $executives = json_decode(file_get_contents($executivesFile), true);
-    if (!is_array($executives)) {
-        $executives = []; // Handle corrupted file
+// Enable error reporting for debugging
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
+
+// Fetch executives from database
+$sql = "SELECT position, name, start_date, end_date FROM executive";
+$result = $conn->query($sql);
+$executives = [];
+if ($result) {
+    while ($row = $result->fetch_assoc()) {
+        $executives[] = $row;
     }
 } else {
-    $executives = [
-        [
-            "position" => "Chair",
-            "name" => "Fahim",
-            "start_date" => "2025-01-01",
-            "end_date" => "2025-12-31"
-        ],
-        [
-            "position" => "Vice Chair",
-            "name" => "Omar",
-            "start_date" => "2025-01-01",
-            "end_date" => "2025-12-31"
-        ],
-        [
-            "position" => "Secretary",
-            "name" => "Sadman",
-            "start_date" => "2025-01-01",
-            "end_date" => "2025-12-31"
-        ],
-        [
-            "position" => "Treasurer",
-            "name" => "Salim",
-            "start_date" => "2025-01-01",
-            "end_date" => "2025-12-31"
-        ],
-        [
-            "position" => "Webmaster",
-            "name" => "Asif",
-            "start_date" => "2025-01-01",
-            "end_date" => "2025-12-31"
-        ]
-    ];
-    // Save initial data to file
-    file_put_contents($executivesFile, json_encode($executives, JSON_PRETTY_PRINT));
+    error_log("Error fetching executives: " . $conn->error);
+    $error = "Failed to load executives.";
 }
 
 // Handle form submission for adding new executive
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_executive'])) {
+    // Debug POST data
+    error_log("POST data: " . print_r($_POST, true));
+
     $position = trim($_POST['position'] ?? '');
     $name = trim($_POST['name'] ?? '');
     $start_date = trim($_POST['start_date'] ?? '');
@@ -76,15 +53,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_executive'])) {
     }
 
     if (empty($errors)) {
-        $new_executive = [
-            'position' => $position,
-            'name' => $name,
-            'start_date' => $start_date,
-            'end_date' => $end_date
-        ];
-        $executives[] = $new_executive;
-        file_put_contents($executivesFile, json_encode($executives, JSON_PRETTY_PRINT));
-        $success = "Executive added successfully!";
+        $sql = "INSERT INTO executive (position, name, start_date, end_date) VALUES (?, ?, ?, ?)";
+        if ($stmt = $conn->prepare($sql)) {
+            $stmt->bind_param("ssss", $position, $name, $start_date, $end_date);
+            if ($stmt->execute()) {
+                $success = "Executive added successfully!";
+                // Refresh executives list
+                $result = $conn->query("SELECT position, name, start_date, end_date FROM executive");
+                $executives = [];
+                if ($result) {
+                    while ($row = $result->fetch_assoc()) {
+                        $executives[] = $row;
+                    }
+                }
+            } else {
+                $error = "Failed to add executive: " . $stmt->error;
+                error_log("INSERT error: " . $stmt->error);
+            }
+            $stmt->close();
+        } else {
+            $error = "Database error: Unable to prepare query.";
+            error_log("Prepare error: " . $conn->error);
+        }
     } else {
         $error = implode(' ', $errors);
     }
@@ -92,11 +82,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_executive'])) {
 
 // Handle removal of an executive
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['remove_executive'])) {
-    $index = filter_input(INPUT_POST, 'index', FILTER_VALIDATE_INT);
-    if ($index !== false && isset($executives[$index])) {
-        array_splice($executives, $index, 1);
-        file_put_contents($executivesFile, json_encode($executives, JSON_PRETTY_PRINT));
-        $success = "Executive removed successfully!";
+    $position = trim($_POST['position'] ?? '');
+    $name = trim($_POST['name'] ?? '');
+    $start_date = trim($_POST['start_date'] ?? '');
+    $end_date = trim($_POST['end_date'] ?? '');
+
+    if (!empty($position) && !empty($name) && !empty($start_date) && !empty($end_date)) {
+        $sql = "DELETE FROM executive WHERE position = ? AND name = ? AND start_date = ? AND end_date = ?";
+        if ($stmt = $conn->prepare($sql)) {
+            $stmt->bind_param("ssss", $position, $name, $start_date, $end_date);
+            if ($stmt->execute()) {
+                if ($stmt->affected_rows > 0) {
+                    $success = "Executive removed successfully!";
+                    // Refresh executives list
+                    $result = $conn->query("SELECT position, name, start_date, end_date FROM executive");
+                    $executives = [];
+                    if ($result) {
+                        while ($row = $result->fetch_assoc()) {
+                            $executives[] = $row;
+                        }
+                    }
+                } else {
+                    $error = "No executive matched for removal.";
+                }
+            } else {
+                $error = "Failed to remove executive: " . $stmt->error;
+                error_log("DELETE error: " . $stmt->error);
+            }
+            $stmt->close();
+        } else {
+            $error = "Database error: Unable to prepare query.";
+            error_log("Prepare error: " . $conn->error);
+        }
     } else {
         $error = "Invalid executive selected for removal.";
     }
@@ -310,7 +327,7 @@ if (isset($_GET['logout']) && $_GET['logout'] === 'true') {
         <?php endif; ?>
 
         <!-- Executive List -->
-        <?php foreach ($executives as $index => $exec): ?>
+        <?php foreach ($executives as $exec): ?>
             <div class="info-box">
                 <div class="position-box">
                     <?php echo htmlspecialchars($exec['position']); ?>
@@ -321,7 +338,10 @@ if (isset($_GET['logout']) && $_GET['logout'] === 'true') {
                     <p class="info-text">Term End: <?php echo htmlspecialchars($exec['end_date']); ?></p>
                 </div>
                 <form method="POST" style="margin-left: 1rem;">
-                    <input type="hidden" name="index" value="<?php echo $index; ?>">
+                    <input type="hidden" name="position" value="<?php echo htmlspecialchars($exec['position']); ?>">
+                    <input type="hidden" name="name" value="<?php echo htmlspecialchars($exec['name']); ?>">
+                    <input type="hidden" name="start_date" value="<?php echo htmlspecialchars($exec['start_date']); ?>">
+                    <input type="hidden" name="end_date" value="<?php echo htmlspecialchars($exec['end_date']); ?>">
                     <button type="submit" name="remove_executive" class="btn-remove" onclick="return confirm('Are you sure you want to remove this executive?');">Remove</button>
                 </form>
             </div>
@@ -359,3 +379,7 @@ if (isset($_GET['logout']) && $_GET['logout'] === 'true') {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 </body>
 </html>
+<?php
+// Close database connection
+$conn->close();
+?>

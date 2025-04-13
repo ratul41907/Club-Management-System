@@ -1,6 +1,9 @@
 <?php
 session_start();
 
+
+require_once 'db_connect.php'; // Adjust the path if needed
+
 // Check if user is logged in as a lead
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || 
     !isset($_SESSION['lead_logged_in']) || $_SESSION['lead_logged_in'] !== true) {
@@ -8,14 +11,14 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true ||
     exit();
 }
 
-// Function to calculate age from DOB
+
 function calculateAge($dob) {
     $birthDate = new DateTime($dob);
     $today = new DateTime('today');
     return $birthDate->diff($today)->y;
 }
 
-// Ensure members array exists in session (from recruitment.php)
+
 if (!isset($_SESSION['members'])) {
     $_SESSION['members'] = [
         [
@@ -61,15 +64,46 @@ if (!isset($_SESSION['members'])) {
     ];
 }
 
-// Handle status change
+
 if (isset($_POST['update_status'])) {
+    global $conn; // Use the database connection
     $index = $_POST['member_index'];
     $new_status = $_POST['status'];
     
     if (isset($_SESSION['members'][$index]) && in_array($new_status, ['Selected', 'Pending'])) {
         $_SESSION['members'][$index]['status'] = $new_status;
+        
+        // Prepare the full name
+        $member = $_SESSION['members'][$index];
+        $full_name = trim($member['first_name'] . ' ' . $member['middle_name'] . ' ' . $member['last_name']);
+        
+        if ($new_status === 'Selected') {
+            // Check if the member already exists in the table
+            $stmt = $conn->prepare("SELECT id FROM club_registration WHERE name = ?");
+            $stmt->bind_param("s", $full_name);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            
+            if ($result->num_rows > 0) {
+                // Update existing record
+                $stmt = $conn->prepare("UPDATE club_registration SET status = ? WHERE name = ?");
+                $stmt->bind_param("ss", $new_status, $full_name);
+            } else {
+                // Insert new record
+                $stmt = $conn->prepare("INSERT INTO club_registration (name, status) VALUES (?, ?)");
+                $stmt->bind_param("ss", $full_name, $new_status);
+            }
+            $stmt->execute();
+            $stmt->close();
+        } else {
+            
+            $stmt = $conn->prepare("DELETE FROM club_registration WHERE name = ?");
+            $stmt->bind_param("s", $full_name);
+            $stmt->execute();
+            $stmt->close();
+        }
     }
-    header("Location: clubregistration.php"); // Refresh page
+    header("Location: clubregistration.php"); 
     exit();
 }
 
@@ -246,3 +280,7 @@ $members = $_SESSION['members'];
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 </body>
 </html>
+<?php
+
+$conn->close();
+?>

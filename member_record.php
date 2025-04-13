@@ -1,68 +1,87 @@
 <?php
 session_start();
 
-// Check if user is logged in as a lead (match menu.php with 'lead_logged_in')
+// Include database connection
+require_once 'db_connect.php';
+
+// Check if user is logged in as a lead
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || 
     !isset($_SESSION['lead_logged_in']) || $_SESSION['lead_logged_in'] !== true) {
-    header("Location: menu.php"); // Redirect to menu.php
+    header("Location: menu.php");
     exit();
 }
 
-// Initialize member_records array if not already set
-if (!isset($_SESSION['member_records']) || !is_array($_SESSION['member_records'])) {
-    $_SESSION['member_records'] = [];
-}
+// Sync members from club_membership to member_records
+$club_id = $_SESSION['selected_club_id'] ?? 'N/A';
+if ($club_id !== 'N/A') {
+    // Fetch all Member_id from club_membership for the selected club
+    $stmt = $conn->prepare("SELECT Member_id FROM club_membership WHERE club_id = ?");
+    $stmt->bind_param("s", $club_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $member_ids = $result->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
 
-// Function to generate a unique record ID
-function generateRecordId() {
-    return 'REC' . str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
-}
-
-// Sync selected members from $_SESSION['members'] (set in clubregistration.php)
-// Use a flag to trigger sync only when explicitly needed
-if (isset($_SESSION['sync_members']) && $_SESSION['sync_members'] === true) {
-    if (isset($_SESSION['members'])) {
-        foreach ($_SESSION['members'] as $member) {
-            if (isset($member['status']) && $member['status'] === 'Selected') {
-                $memberExists = false;
-                $record_id = isset($member['record_id']) ? $member['record_id'] : generateRecordId();
-                
-                // Check if this member already exists in member_records
-                foreach ($_SESSION['member_records'] as $record) {
-                    if ($record['record_id'] === $record_id) {
-                        $memberExists = true;
-                        break;
-                    }
-                }
-                
-                // Add only if not already present
-                if (!$memberExists) {
-                    $_SESSION['member_records'][] = [
-                        'record_id' => $record_id,
-                        'activity_status' => 'Active' // Default status for new members
-                    ];
-                }
-            }
+    // Ensure each Member_id has a corresponding member_records entry
+    foreach ($member_ids as $member) {
+        $record_id = $member['Member_id'];
+        // Check if record exists
+        $stmt = $conn->prepare("SELECT record_id FROM member_records WHERE record_id = ?");
+        $stmt->bind_param("s", $record_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        if ($result->num_rows === 0) {
+            // Insert new record with default activity status
+            $stmt = $conn->prepare("INSERT INTO member_records (record_id, activity) VALUES (?, ?)");
+            $default_activity = 'Active';
+            $stmt->bind_param("ss", $record_id, $default_activity);
+            $stmt->execute();
         }
+        $stmt->close();
     }
-    // Reset the sync flag after processing
-    unset($_SESSION['sync_members']);
 }
 
 // Handle activity status update
 if (isset($_POST['update_activity'])) {
-    $index = filter_input(INPUT_POST, 'record_index', FILTER_VALIDATE_INT);
+    $record_id = filter_input(INPUT_POST, 'record_id', FILTER_SANITIZE_STRING);
     $new_activity_status = filter_input(INPUT_POST, 'activity_status', FILTER_SANITIZE_STRING);
     
-    if ($index !== false && $index !== null && isset($_SESSION['member_records'][$index]) && 
-        in_array($new_activity_status, ['Active', 'Moderate', 'Inactive'])) {
-        $_SESSION['member_records'][$index]['activity_status'] = $new_activity_status;
+    if (!empty($record_id) && in_array($new_activity_status, ['Active', 'Moderate', 'Inactive'])) {
+        // Update activity status
+        $stmt = $conn->prepare("UPDATE member_records SET activity = ? WHERE record_id = ?");
+        $stmt->bind_param("ss", $new_activity_status, $record_id);
+        
+        if ($stmt->execute()) {
+            if ($stmt->affected_rows > 0) {
+                $success_message = "Activity status updated successfully!";
+            } else {
+                $error_message = "No record found with this ID.";
+            }
+        } else {
+            $error_message = "Error updating activity status: " . $stmt->error;
+        }
+        $stmt->close();
+    } else {
+        $error_message = "Please provide valid inputs.";
     }
-    header("Location: member_record.php"); // Refresh page
-    exit();
 }
 
-$member_records = $_SESSION['member_records'];
+// Fetch member records for the selected club
+$member_records = [];
+if ($club_id !== 'N/A') {
+    $stmt = $conn->prepare("
+        SELECT mr.record_id, mr.activity 
+        FROM member_records mr
+        JOIN club_membership cm ON mr.record_id = cm.Member_id
+        WHERE cm.club_id = ?
+    ");
+    $stmt->bind_param("s", $club_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $member_records = $result->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+}
 ?>
 
 <!DOCTYPE html>
@@ -173,6 +192,10 @@ $member_records = $_SESSION['member_records'];
             font-size: 1rem; 
             transition: color 1s ease; 
         }
+        .alert {
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
     </style>
     <script>
         document.addEventListener("DOMContentLoaded", function () {
@@ -196,24 +219,36 @@ $member_records = $_SESSION['member_records'];
 <body>
     <div class="records-container">
         <h3>Member Records</h3>
-        
+
+        <?php if (isset($success_message)): ?>
+            <div class="alert alert-success" role="alert">
+                <?php echo htmlspecialchars($success_message); ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if (isset($error_message)): ?>
+            <div class="alert alert-danger" role="alert">
+                <?php echo htmlspecialchars($error_message); ?>
+            </div>
+        <?php endif; ?>
+
         <?php if (empty($member_records)): ?>
             <p class="text-center">No selected members found.</p>
         <?php else: ?>
-            <?php foreach ($member_records as $index => $record): ?>
+            <?php foreach ($member_records as $record): ?>
                 <div class="record-box">
                     <div class="member-info">
                         <p class="info-text">Record ID: <?php echo htmlspecialchars($record['record_id']); ?></p>
                     </div>
                     <form class="status-form" method="post" action="member_record.php">
                         <select name="activity_status" class="activity-select 
-                            <?php echo $record['activity_status'] === 'Active' ? 'status-active' : 
-                                ($record['activity_status'] === 'Moderate' ? 'status-moderate' : 'status-inactive'); ?>">
-                            <option value="Active" <?php echo $record['activity_status'] === 'Active' ? 'selected' : ''; ?>>Active</option>
-                            <option value="Moderate" <?php echo $record['activity_status'] === 'Moderate' ? 'selected' : ''; ?>>Moderate</option>
-                            <option value="Inactive" <?php echo $record['activity_status'] === 'Inactive' ? 'selected' : ''; ?>>Inactive</option>
+                            <?php echo $record['activity'] === 'Active' ? 'status-active' : 
+                                ($record['activity'] === 'Moderate' ? 'status-moderate' : 'status-inactive'); ?>">
+                            <option value="Active" <?php echo $record['activity'] === 'Active' ? 'selected' : ''; ?>>Active</option>
+                            <option value="Moderate" <?php echo $record['activity'] === 'Moderate' ? 'selected' : ''; ?>>Moderate</option>
+                            <option value="Inactive" <?php echo $record['activity'] === 'Inactive' ? 'selected' : ''; ?>>Inactive</option>
                         </select>
-                        <input type="hidden" name="record_index" value="<?php echo $index; ?>">
+                        <input type="hidden" name="record_id" value="<?php echo htmlspecialchars($record['record_id']); ?>">
                         <button type="submit" name="update_activity" class="btn-update">Update</button>
                     </form>
                 </div>

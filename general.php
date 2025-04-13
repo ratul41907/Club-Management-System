@@ -36,9 +36,18 @@ $all_clubs = array_merge(
     ],
     $_SESSION['additional_clubs'] ?? []
 );
+
+// Find the selected club
 $selected_club = current(array_filter($all_clubs, function($club) use ($selected_club_id) {
     return $club['club_id'] === $selected_club_id;
 }));
+
+// Check if a valid club was found
+if ($selected_club === false) {
+    $_SESSION['error'] = "Invalid club selected!";
+    header("Location: index.php");
+    exit();
+}
 ?>
 
 <!DOCTYPE html>

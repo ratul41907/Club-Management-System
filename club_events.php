@@ -1,41 +1,14 @@
 <?php
 session_start();
 
+
+require_once 'db_connect.php';
+
+
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || 
     !isset($_SESSION['lead_logged_in']) || $_SESSION['lead_logged_in'] !== true) {
     header("Location: index.php");
     exit();
-}
-
-
-if (!isset($_SESSION['events']) || !is_array($_SESSION['events'])) {
-    $_SESSION['events'] = [
-        [
-            'event_id' => 1,
-            'event_name' => 'Skii Adventure',
-            'event_date' => '2025-06-12'
-        ],
-        [
-            'event_id' => 2,
-            'event_name' => 'MS Word Basic Skill',
-            'event_date' => '2025-07-19'
-        ],
-        [
-            'event_id' => 3,
-            'event_name' => 'Typorgraphiy',
-            'event_date' => '2025-08-03'
-        ],
-        [
-            'event_id' => 4,
-            'event_name' => 'Basic Video Editing',
-            'event_date' => '2025-09-15'
-        ],
-        [
-            'event_id' => 5,
-            'event_name' => 'Higher Studies',
-            'event_date' => '2025-10-27'
-        ]
-    ];
 }
 
 
@@ -44,33 +17,44 @@ if (isset($_POST['add_event'])) {
     $event_date = filter_input(INPUT_POST, 'event_date', FILTER_SANITIZE_STRING);
     
     if (!empty($event_name) && !empty($event_date) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $event_date)) {
-        // Generate a new unique event ID (max existing ID + 1)
-        $existing_ids = array_column($_SESSION['events'], 'event_id');
-        $new_event_id = empty($existing_ids) ? 1 : (max($existing_ids) + 1);
+        // Insert event into database
+        $stmt = $conn->prepare("INSERT INTO club_events (event_name, event_date) VALUES (?, ?)");
+        $stmt->bind_param("ss", $event_name, $event_date);
         
-        $_SESSION['events'][] = [
-            'event_id' => $new_event_id,
-            'event_name' => $event_name,
-            'event_date' => $event_date
-        ];
+        if ($stmt->execute()) {
+            $success_message = "Event added successfully!";
+        } else {
+            $error_message = "Error adding event: " . $stmt->error;
+        }
+        $stmt->close();
+    } else {
+        $error_message = "Please provide a valid event name and date.";
     }
-    header("Location: club_events.php"); // Refresh page
-    exit();
 }
 
-
+// Handle event deletion
 if (isset($_POST['delete_event'])) {
-    $index = filter_input(INPUT_POST, 'event_index', FILTER_VALIDATE_INT);
+    $event_id = filter_input(INPUT_POST, 'event_id', FILTER_VALIDATE_INT);
     
-    if ($index !== false && $index !== null && isset($_SESSION['events'][$index])) {
-        unset($_SESSION['events'][$index]);
-        $_SESSION['events'] = array_values($_SESSION['events']); // Re-index array
+    if ($event_id !== false && $event_id !== null) {
+        // Delete event from database
+        $stmt = $conn->prepare("DELETE FROM club_events WHERE event_id = ?");
+        $stmt->bind_param("i", $event_id);
+        
+        if ($stmt->execute()) {
+            $success_message = "Event deleted successfully!";
+        } else {
+            $error_message = "Error deleting event: " . $stmt->error;
+        }
+        $stmt->close();
+    } else {
+        $error_message = "Invalid event ID.";
     }
-    header("Location: club_events.php"); // Refresh page
-    exit();
 }
 
-$events = $_SESSION['events'];
+// Fetch all events from database
+$result = $conn->query("SELECT event_id, event_name, event_date FROM club_events ORDER BY event_date ASC");
+$events = $result ? $result->fetch_all(MYSQLI_ASSOC) : [];
 ?>
 
 <!DOCTYPE html>
@@ -185,6 +169,10 @@ $events = $_SESSION['events'];
             font-size: 1rem;
             transition: color 1s ease;
         }
+        .alert {
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
     </style>
     <script>
         document.addEventListener("DOMContentLoaded", function () {
@@ -220,6 +208,17 @@ $events = $_SESSION['events'];
     <div class="events-container">
         <h3>Club Events</h3>
 
+        <?php if (isset($success_message)): ?>
+            <div class="alert alert-success" role="alert">
+                <?php echo htmlspecialchars($success_message); ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if (isset($error_message)): ?>
+            <div class="alert alert-danger" role="alert">
+                <?php echo htmlspecialchars($error_message); ?>
+            </div>
+        <?php endif; ?>
 
         <form class="add-event-form" method="post" action="club_events.php">
             <input type="text" name="event_name" class="form-control" placeholder="Event Name" required>
@@ -227,11 +226,10 @@ $events = $_SESSION['events'];
             <button type="submit" name="add_event" class="btn-add">Add Event</button>
         </form>
 
-        
         <?php if (empty($events)): ?>
             <p class="text-center">No events found.</p>
         <?php else: ?>
-            <?php foreach ($events as $index => $event): ?>
+            <?php foreach ($events as $event): ?>
                 <div class="event-box">
                     <div class="event-info">
                         <p class="info-text">Event ID: <?php echo htmlspecialchars($event['event_id']); ?></p>
@@ -239,14 +237,14 @@ $events = $_SESSION['events'];
                         <p class="info-text">Event Date: <?php echo htmlspecialchars($event['event_date']); ?></p>
                     </div>
                     <form method="post" action="club_events.php">
-                        <input type="hidden" name="event_index" value="<?php echo $index; ?>">
+                        <input type="hidden" name="event_id" value="<?php echo $event['event_id']; ?>">
                         <button type="submit" name="delete_event" class="btn-delete">Delete</button>
                     </form>
                 </div>
             <?php endforeach; ?>
         <?php endif; ?>
 
-               <a href="dashboard.php?logout=true" class="btn btn-danger">Logout</a>
+        <a href="dashboard.php?logout=true" class="btn btn-danger">Logout</a>
         <div id="clock"></div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>

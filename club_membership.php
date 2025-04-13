@@ -2,28 +2,12 @@
 session_start();
 
 
+require_once 'db_connect.php';
+
+// Check if user is logged in as a lead
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || 
     !isset($_SESSION['lead_logged_in']) || $_SESSION['lead_logged_in'] !== true) {
     header("Location: menu.php"); // Redirect back to menu.php if not a lead
-    exit();
-}
-
-
-if (!isset($_SESSION['member_records']) || !is_array($_SESSION['member_records'])) {
-    $_SESSION['member_records'] = [];
-}
-
-
-if (isset($_POST['update_membership'])) {
-    $index = filter_input(INPUT_POST, 'record_index', FILTER_VALIDATE_INT);
-    $new_membership_type = filter_input(INPUT_POST, 'membership_type', FILTER_SANITIZE_STRING);
-    
-    if ($index !== false && $index !== null && isset($_SESSION['member_records'][$index]) && 
-        in_array($new_membership_type, ['Yearly', 'Half Yearly'])) {
-        $_SESSION['member_records'][$index]['membership_type'] = $new_membership_type;
-        $_SESSION['member_records'][$index]['membership_amount'] = ($new_membership_type === 'Yearly') ? 1000 : 500;
-    }
-    header("Location: club_membership.php"); // Refresh page
     exit();
 }
 
@@ -32,34 +16,77 @@ if (isset($_POST['add_member'])) {
     $sl = filter_input(INPUT_POST, 'sl', FILTER_SANITIZE_STRING);
     $membership_type = filter_input(INPUT_POST, 'new_membership_type', FILTER_SANITIZE_STRING);
     $membership_amount = filter_input(INPUT_POST, 'membership_amount', FILTER_VALIDATE_INT);
+    $club_id = $_SESSION['selected_club_id'] ?? 'N/A';
 
     if (!empty($sl) && in_array($membership_type, ['Yearly', 'Half Yearly']) && 
-        in_array($membership_amount, [500, 1000])) {
-        $_SESSION['member_records'][] = [
-            'record_id' => $sl, // Using SL as record_id
-            'club_id' => $_SESSION['selected_club_id'] ?? 'N/A', // From dashboard.php
-            'membership_type' => $membership_type,
-            'membership_amount' => $membership_amount
-        ];
+        in_array($membership_amount, [500, 1000]) && $club_id !== 'N/A') {
+        // Check if member_id already exists
+        $stmt = $conn->prepare("SELECT Member_id FROM club_membership WHERE Member_id = ?");
+        $stmt->bind_param("s", $sl);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        if ($result->num_rows > 0) {
+            $error_message = "Member ID already exists.";
+        } else {
+            // Insert new member
+            $stmt = $conn->prepare("INSERT INTO club_membership (Member_id, Member_type, member_fee, club_id) VALUES (?, ?, ?, ?)");
+            $stmt->bind_param("ssis", $sl, $membership_type, $membership_amount, $club_id);
+
+            if ($stmt->execute()) {
+                $success_message = "Member added successfully!";
+            } else {
+                $error_message = "Error adding member: " . $stmt->error;
+            }
+        }
+        $stmt->close();
+    } else {
+        $error_message = "Please provide valid inputs.";
     }
-    header("Location: club_membership.php"); // Refresh page
-    exit();
 }
 
 
-foreach ($_SESSION['member_records'] as &$record) {
-    if (!isset($record['membership_type']) || !isset($record['membership_amount'])) {
-        $record['membership_type'] = 'Yearly';
-        $record['membership_amount'] = 1000;
+if (isset($_POST['update_membership'])) {
+    $member_id = filter_input(INPUT_POST, 'member_id', FILTER_SANITIZE_STRING);
+    $new_membership_type = filter_input(INPUT_POST, 'membership_type', FILTER_SANITIZE_STRING);
+    
+    if (!empty($member_id) && in_array($new_membership_type, ['Yearly', 'Half Yearly'])) {
+        $new_membership_amount = ($new_membership_type === 'Yearly') ? 1000 : 500;
+        
+        // Update membership
+        $stmt = $conn->prepare("UPDATE club_membership SET Member_type = ?, member_fee = ? WHERE Member_id = ?");
+        $stmt->bind_param("sis", $new_membership_type, $new_membership_amount, $member_id);
+
+        if ($stmt->execute()) {
+            if ($stmt->affected_rows > 0) {
+                $success_message = "Membership updated successfully!";
+            } else {
+                $error_message = "No member found with this ID.";
+            }
+        } else {
+            $error_message = "Error updating membership: " . $stmt->error;
+        }
+        $stmt->close();
+    } else {
+        $error_message = "Please provide valid inputs.";
     }
 }
-unset($record);
 
-$member_records = $_SESSION['member_records'];
+
+$club_id = $_SESSION['selected_club_id'] ?? 'N/A';
+$member_records = [];
+if ($club_id !== 'N/A') {
+    $stmt = $conn->prepare("SELECT Member_id, Member_type, member_fee, club_id FROM club_membership WHERE club_id = ?");
+    $stmt->bind_param("s", $club_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $member_records = $result->fetch_all(MYSQLI_ASSOC);
+    $stmt->close();
+}
 
 
 $total_members = count($member_records);
-$total_money = array_sum(array_column($member_records, 'membership_amount'));
+$total_money = array_sum(array_column($member_records, 'member_fee'));
 ?>
 
 <!DOCTYPE html>
@@ -216,6 +243,10 @@ $total_money = array_sum(array_column($member_records, 'membership_amount'));
             background: #218838;
             transform: scale(1.05);
         }
+        .alert {
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
     </style>
     <script>
         document.addEventListener("DOMContentLoaded", function () {
@@ -250,30 +281,36 @@ $total_money = array_sum(array_column($member_records, 'membership_amount'));
 <body>
     <div class="membership-container">
         <h3>Club Membership</h3>
-        
+
+        <?php if (isset($success_message)): ?>
+            <div class="alert alert-success" role="alert">
+                <?php echo htmlspecialchars($success_message); ?>
+            </div>
+        <?php endif; ?>
+
+        <?php if (isset($error_message)): ?>
+            <div class="alert alert-danger" role="alert">
+                <?php echo htmlspecialchars($error_message); ?>
+            </div>
+        <?php endif; ?>
+
         <?php if (empty($member_records)): ?>
             <p class="text-center">No selected members found.</p>
         <?php else: ?>
-            <?php foreach ($member_records as $index => $record): ?>
-                <?php 
-                $record_id = isset($record['record_id']) ? htmlspecialchars($record['record_id']) : 'N/A';
-                $club_id = isset($record['club_id']) ? htmlspecialchars($record['club_id']) : 'N/A';
-                $membership_amount = isset($record['membership_amount']) ? htmlspecialchars($record['membership_amount']) : 'N/A';
-                $membership_type = isset($record['membership_type']) ? $record['membership_type'] : 'Yearly';
-                ?>
+            <?php foreach ($member_records as $record): ?>
                 <div class="membership-box">
                     <div class="member-info">
-                        <p class="info-text">Record ID: <?php echo $record_id; ?></p>
-                        <p class="info-text">Club ID: <?php echo $club_id; ?></p>
-                        <p class="info-text">Membership Amount: <?php echo $membership_amount; ?></p>
+                        <p class="info-text">Member ID: <?php echo htmlspecialchars($record['Member_id']); ?></p>
+                        <p class="info-text">Club ID: <?php echo htmlspecialchars($record['club_id']); ?></p>
+                        <p class="info-text">Membership Amount: <?php echo htmlspecialchars($record['member_fee']); ?></p>
                     </div>
                     <form class="membership-form" method="post" action="club_membership.php">
                         <select name="membership_type" class="membership-select 
-                            <?php echo $membership_type === 'Yearly' ? 'membership-yearly' : 'membership-half-yearly'; ?>">
-                            <option value="Yearly" <?php echo $membership_type === 'Yearly' ? 'selected' : ''; ?>>Yearly</option>
-                            <option value="Half Yearly" <?php echo $membership_type === 'Half Yearly' ? 'selected' : ''; ?>>Half Yearly</option>
+                            <?php echo $record['Member_type'] === 'Yearly' ? 'membership-yearly' : 'membership-half-yearly'; ?>">
+                            <option value="Yearly" <?php echo $record['Member_type'] === 'Yearly' ? 'selected' : ''; ?>>Yearly</option>
+                            <option value="Half Yearly" <?php echo $record['Member_type'] === 'Half Yearly' ? 'selected' : ''; ?>>Half Yearly</option>
                         </select>
-                        <input type="hidden" name="record_index" value="<?php echo $index; ?>">
+                        <input type="hidden" name="member_id" value="<?php echo htmlspecialchars($record['Member_id']); ?>">
                         <button type="submit" name="update_membership" class="btn-update">Update</button>
                     </form>
                 </div>
@@ -282,7 +319,7 @@ $total_money = array_sum(array_column($member_records, 'membership_amount'));
 
         <div class="add-member-box">
             <form method="post" action="club_membership.php" class="d-flex align-items-center">
-                <input type="text" name="sl" placeholder="Enter SL" required>
+                <input type="text" name="sl" placeholder="Enter Member ID" required>
                 <select name="new_membership_type" class="membership-select membership-yearly">
                     <option value="Yearly">Yearly</option>
                     <option value="Half Yearly">Half Yearly</option>
